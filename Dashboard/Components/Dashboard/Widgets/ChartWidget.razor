@@ -1,0 +1,12 @@
+@using System.Text.Json
+
+<div class="chart-widget p-4 flex items-center justify-center bg-gray-50 border border-gray-200 rounded">
+    <p class="text-gray-500 italic">Charts temporarily disabled</p>
+</div>
+
+@code {
+    [Parameter] public JsonElement? Data { get; set; }
+    [Parameter] public WidgetConfig Config { get; set; } = new();
+    
+    // Chart rendering logic removed temporarily to remove JSInterop dependency
+}

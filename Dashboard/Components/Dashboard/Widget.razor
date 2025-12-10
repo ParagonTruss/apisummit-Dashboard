@@ -1,0 +1,181 @@
+@inject ParagonApiClient ApiClient
+
+<div class="widget @GetWidgetClass()">
+    <div class="widget-header">
+        <h3 class="widget-title">@Config.Title</h3>
+        <div class="widget-actions">
+            <button class="btn-icon" @onclick="OnRefresh" title="Refresh">🔄</button>
+            <button class="btn-icon" @onclick="OnEdit" title="Edit">✏️</button>
+            <button class="btn-icon btn-danger" @onclick="ConfirmDelete" title="Delete">🗑️</button>
+        </div>
+    </div>
+    
+    <div class="widget-content">
+        @if (IsLoading)
+        {
+            <div class="widget-loading">
+                <div class="spinner-small"></div>
+                <span>Loading...</span>
+            </div>
+        }
+        else if (HasError)
+        {
+            <div class="widget-error">
+                <span class="error-icon">⚠️</span>
+                <p>@ErrorMessage</p>
+                <button class="btn btn-sm" @onclick="LoadData">Retry</button>
+            </div>
+        }
+        else if (Data == null && string.IsNullOrEmpty(Config.EndpointPath))
+        {
+            <div class="widget-placeholder">
+                <p>Configure this widget to display data</p>
+                <button class="btn btn-sm btn-primary" @onclick="OnEdit">Configure</button>
+            </div>
+        }
+        else
+        {
+            @switch (Config.Type)
+            {
+                case WidgetType.DataTable:
+                    <DataTableWidget Data="@Data" Config="@Config" />
+                    break;
+                case WidgetType.BarChart:
+                case WidgetType.LineChart:
+                case WidgetType.PieChart:
+                    <ChartWidget Data="@Data" Config="@Config" />
+                    break;
+                case WidgetType.KpiCard:
+                    <KpiCardWidget Data="@Data" Config="@Config" />
+                    break;
+            }
+        }
+    </div>
+    
+    @if (Config.RefreshIntervalSeconds > 0)
+    {
+        <div class="widget-footer">
+            <small class="text-muted">Auto-refresh: @Config.RefreshIntervalSeconds s</small>
+        </div>
+    }
+</div>
+
+@if (ShowDeleteConfirm)
+{
+    <div class="modal-backdrop" @onclick="CancelDelete">
+        <div class="confirm-dialog" @onclick:stopPropagation="true">
+            <h4>Delete Widget?</h4>
+            <p>Are you sure you want to delete "@Config.Title"?</p>
+            <div class="confirm-actions">
+                <button class="btn btn-secondary" @onclick="CancelDelete">Cancel</button>
+                <button class="btn btn-danger" @onclick="DoDelete">Delete</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public WidgetConfig Config { get; set; } = new();
+    [Parameter] public EventCallback OnEdit { get; set; }
+    [Parameter] public EventCallback OnDelete { get; set; }
+    [Parameter] public EventCallback OnRefresh { get; set; }
+    
+    private System.Text.Json.JsonElement? Data;
+    private bool IsLoading = false;
+    private bool HasError = false;
+    private string ErrorMessage = "";
+    private bool ShowDeleteConfirm = false;
+    
+    private System.Threading.Timer? _refreshTimer;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrEmpty(Config.EndpointPath))
+        {
+            await LoadData();
+        }
+        
+        SetupAutoRefresh();
+    }
+    
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!string.IsNullOrEmpty(Config.EndpointPath) && Data == null && !IsLoading)
+        {
+            await LoadData();
+        }
+    }
+    
+    private void SetupAutoRefresh()
+    {
+        if (Config.RefreshIntervalSeconds > 0)
+        {
+            _refreshTimer = new System.Threading.Timer(
+                async _ => await InvokeAsync(async () =>
+                {
+                    await LoadData();
+                    StateHasChanged();
+                }),
+                null,
+                TimeSpan.FromSeconds(Config.RefreshIntervalSeconds),
+                TimeSpan.FromSeconds(Config.RefreshIntervalSeconds)
+            );
+        }
+    }
+    
+    private async Task LoadData()
+    {
+        if (string.IsNullOrEmpty(Config.EndpointPath))
+            return;
+            
+        IsLoading = true;
+        HasError = false;
+        StateHasChanged();
+        
+        try
+        {
+            Data = await ApiClient.GetAsync(Config.EndpointPath, Config.Filters);
+        }
+        catch (Exception ex)
+        {
+            HasError = true;
+            ErrorMessage = ex.Message;
+        }
+        finally
+        {
+            IsLoading = false;
+            StateHasChanged();
+        }
+    }
+    
+    private string GetWidgetClass()
+    {
+        return Config.Type switch
+        {
+            WidgetType.KpiCard => "widget-kpi",
+            WidgetType.BarChart or WidgetType.LineChart or WidgetType.PieChart => "widget-chart",
+            _ => "widget-table"
+        };
+    }
+    
+    private void ConfirmDelete()
+    {
+        ShowDeleteConfirm = true;
+    }
+    
+    private void CancelDelete()
+    {
+        ShowDeleteConfirm = false;
+    }
+    
+    private async Task DoDelete()
+    {
+        ShowDeleteConfirm = false;
+        await OnDelete.InvokeAsync();
+    }
+    
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+}

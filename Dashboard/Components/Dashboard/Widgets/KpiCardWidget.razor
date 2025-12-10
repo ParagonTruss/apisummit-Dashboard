@@ -1,0 +1,110 @@
+@using System.Text.Json
+
+<div class="kpi-card-widget">
+    <div class="kpi-value">@DisplayValue</div>
+    <div class="kpi-label">@Config.Title</div>
+    @if (!string.IsNullOrEmpty(SubValue))
+    {
+        <div class="kpi-sub">@SubValue</div>
+    }
+</div>
+
+@code {
+    [Parameter] public JsonElement? Data { get; set; }
+    [Parameter] public WidgetConfig Config { get; set; } = new();
+    
+    private string DisplayValue = "—";
+    private string SubValue = "";
+    
+    protected override void OnParametersSet()
+    {
+        CalculateValue();
+    }
+    
+    private void CalculateValue()
+    {
+        DisplayValue = "—";
+        SubValue = "";
+        
+        if (Data == null) return;
+        
+        try
+        {
+            if (Data.Value.ValueKind == JsonValueKind.Array)
+            {
+                var array = Data.Value.EnumerateArray().ToList();
+                
+                // If we have a value field, sum or average it
+                if (!string.IsNullOrEmpty(Config.ValueField))
+                {
+                    var total = 0.0;
+                    var count = 0;
+                    
+                    foreach (var item in array)
+                    {
+                        if (item.TryGetProperty(Config.ValueField, out var val))
+                        {
+                            if (val.ValueKind == JsonValueKind.Number)
+                            {
+                                total += val.GetDouble();
+                                count++;
+                            }
+                        }
+                    }
+                    
+                    DisplayValue = FormatNumber(total);
+                    SubValue = $"{count} items";
+                }
+                else
+                {
+                    // Just show count
+                    DisplayValue = array.Count.ToString("N0");
+                    SubValue = "Total items";
+                }
+            }
+            else if (Data.Value.ValueKind == JsonValueKind.Object)
+            {
+                if (!string.IsNullOrEmpty(Config.ValueField) && 
+                    Data.Value.TryGetProperty(Config.ValueField, out var val))
+                {
+                    DisplayValue = FormatValue(val);
+                }
+                else
+                {
+                    // Show property count
+                    var propCount = Data.Value.EnumerateObject().Count();
+                    DisplayValue = propCount.ToString();
+                    SubValue = "Properties";
+                }
+            }
+            else
+            {
+                DisplayValue = FormatValue(Data.Value);
+            }
+        }
+        catch { }
+    }
+    
+    private string FormatValue(JsonElement value)
+    {
+        return value.ValueKind switch
+        {
+            JsonValueKind.Number => FormatNumber(value.GetDouble()),
+            JsonValueKind.String => value.GetString() ?? "",
+            JsonValueKind.True => "Yes",
+            JsonValueKind.False => "No",
+            _ => value.ToString()
+        };
+    }
+    
+    private string FormatNumber(double value)
+    {
+        if (value >= 1_000_000)
+            return $"{value / 1_000_000:F1}M";
+        if (value >= 1_000)
+            return $"{value / 1_000:F1}K";
+        if (value % 1 == 0)
+            return value.ToString("N0");
+        return value.ToString("N2");
+    }
+}

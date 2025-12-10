@@ -1,0 +1,794 @@
+@page "/materials"
+@rendermode InteractiveServer
+@inject ParagonApiClient ApiClient
+
+<PageTitle>Materials</PageTitle>
+
+<div class="container-fluid p-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h1 class="display-6">Materials</h1>
+            <p class="text-muted">Select a project to view its materials.</p>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6 col-lg-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-white p-3">
+                    <h5 class="card-title mb-3">Projects</h5>
+                    <div class="input-group">
+                        <span class="input-group-text bg-light border-end-0">
+                            <i class="bi bi-search text-muted"></i>
+                        </span>
+                        <input type="text" 
+                               class="form-control border-start-0 ps-0" 
+                               placeholder="Search projects..." 
+                               @bind="SearchQuery" 
+                               @bind:event="oninput">
+                    </div>
+                </div>
+                <div class="list-group list-group-flush overflow-auto" style="height: calc(100vh - 250px); max-height: 600px;">
+                    @if (_projects == null)
+                    {
+                        <div class="p-4 text-center text-muted">
+                            <div class="spinner-border spinner-border-sm text-primary mb-2" role="status"></div>
+                            <p class="small mb-0">Loading projects...</p>
+                        </div>
+                    }
+                    else if (!FilteredProjects.Any())
+                    {
+                        <div class="p-5 text-center text-muted">
+                            <i class="bi bi-filter-circle fs-1 mb-2 opacity-50"></i>
+                            <p class="mb-0">No projects found.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var project in FilteredProjects)
+                        {
+                            <button type="button" 
+                                    class="list-group-item list-group-item-action py-3 @(project == _selectedProject ? "active" : "")"
+                                    @onclick="() => SelectProject(project)">
+                                <div class="d-flex w-100 justify-content-between align-items-center">
+                                    <div>
+                                        <div class="fw-medium mb-1">@project.Name</div>
+                                        @if (!string.IsNullOrEmpty(project.Description))
+                                        {
+                                            <small class="text-muted @(project == _selectedProject ? "text-white-50" : "")">
+                                                @(project.Description.Length > 50 ? project.Description.Substring(0, 47) + "..." : project.Description)
+                                            </small>
+                                        }
+                                    </div>
+                                    @if (project == _selectedProject)
+                                    {
+                                        <i class="bi bi-chevron-right small"></i>
+                                    }
+                                </div>
+                            </button>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6 col-lg-8">
+            @if (_selectedProject != null)
+            {
+                <div class="card shadow-sm h-100 border-primary">
+                    <div class="card-body p-4">
+                        <div class="d-flex align-items-center mb-4">
+                            <div class="bg-primary bg-opacity-10 p-3 rounded-circle me-3">
+                                <i class="bi bi-folder2-open text-primary fs-3"></i>
+                            </div>
+                            <div>
+                                <h3 class="mb-0">@_selectedProject.Name</h3>
+                                <small class="text-muted">@(_selectedProject.ComponentDesignGuids.Count) Component Designs</small>
+                            </div>
+                        </div>
+
+                        @if (_isLoadingMaterials)
+                        {
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-primary mb-3" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                <p class="text-muted">Loading material selections...</p>
+                            </div>
+                        }
+                        else if (_materials.Any() || _plates.Any())
+                        {
+                            @if (_materials.Any())
+                            {
+                                <!-- Grouping Controls -->
+                                <div class="mb-4 p-3 bg-light rounded">
+                                    <label class="fw-bold me-3">Group Chart By:</label>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="checkbox" id="groupSpecies" @bind="GroupBySpecies">
+                                        <label class="form-check-label" for="groupSpecies">Species</label>
+                                    </div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="checkbox" id="groupGrade" @bind="GroupByGrade">
+                                        <label class="form-check-label" for="groupGrade">Grade</label>
+                                    </div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="checkbox" id="groupDimensions" @bind="GroupByDimensions">
+                                        <label class="form-check-label" for="groupDimensions">Dimensions</label>
+                                    </div>
+                                </div>
+
+                                <!-- Charts -->
+                                <div class="mb-5">
+                                    <h5 class="mb-3">Material Aggregation</h5>
+                                    <div class="row">
+                                        <!-- Quantity Pie Chart -->
+                                        <div class="col-md-6 mb-4 mb-md-0">
+                                            <div class="card shadow-sm border-0 bg-light h-100">
+                                                <div class="card-header bg-transparent border-0 fw-bold text-center">Quantity</div>
+                                                <div class="card-body">
+                                                    <div class="row align-items-center h-100">
+                                                        <div class="col-12 text-center mb-3">
+                                                            <div class="d-inline-block position-relative" 
+                                                                 style="width: 200px; height: 200px; border-radius: 50%; background: conic-gradient(@PieChartGradient);">
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-12">
+                                                            <div class="overflow-auto" style="max-height: 150px;">
+                                                                @foreach (var group in ChartData)
+                                                                {
+                                                                    <div class="d-flex align-items-center mb-1 small">
+                                                                        <div class="rounded-circle me-2" style="width: 10px; height: 10px; background-color: @group.Color;"></div>
+                                                                        <div class="flex-grow-1 text-truncate" title="@group.Key">@group.Key</div>
+                                                                        <div class="fw-bold ms-2">@group.Count</div>
+                                                                        <div class="text-muted ms-1" style="width: 35px;">@Math.Round(group.Percentage, 0)%</div>
+                                                                    </div>
+                                                                }
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Cost Pie Chart -->
+                                        <div class="col-md-6">
+                                            <div class="card shadow-sm border-0 bg-light h-100">
+                                                <div class="card-header bg-transparent border-0 fw-bold text-center">Cost</div>
+                                                <div class="card-body">
+                                                    <div class="row align-items-center h-100">
+                                                        <div class="col-12 text-center mb-3">
+                                                            <div class="d-inline-block position-relative" 
+                                                                 style="width: 200px; height: 200px; border-radius: 50%; background: conic-gradient(@CostPieChartGradient);">
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-12">
+                                                            <div class="overflow-auto" style="max-height: 150px;">
+                                                                @foreach (var group in CostChartData)
+                                                                {
+                                                                    <div class="d-flex align-items-center mb-1 small">
+                                                                        <div class="rounded-circle me-2" style="width: 10px; height: 10px; background-color: @group.Color;"></div>
+                                                                        <div class="flex-grow-1 text-truncate" title="@group.Key">@group.Key</div>
+                                                                        <div class="fw-bold ms-2">$@group.Cost.ToString("N2")</div>
+                                                                        <div class="text-muted ms-1" style="width: 35px;">@Math.Round(group.Percentage, 0)%</div>
+                                                                    </div>
+                                                                }
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Table -->
+                                <h5 class="mb-3">Detailed Line Items</h5>
+                                <div class="table-responsive">
+                                    <table class="table table-hover">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th>Species</th>
+                                                <th>Grade</th>
+                                                <th>Dimensions</th>
+                                                <th class="text-end">Quantity</th>
+                                                <th class="text-end">Total Cost</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var item in TableItems)
+                                            {
+                                                <tr>
+                                                    <td>@item.Lumber.Species</td>
+                                                    <td>@item.Lumber.Grade</td>
+                                                    <td>@item.Lumber.NominalThickness x @item.Lumber.NominalWidth</td>
+                                                    <td class="text-end fw-bold">@item.Quantity</td>
+                                                    <td class="text-end text-success">
+                                                        @if (item.TotalCost > 0)
+                                                        {
+                                                            @($"${item.TotalCost:N2}")
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="text-muted">-</span>
+                                                        }
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+
+                            <!-- Plate Materials Section -->
+                            @if (_plates.Any())
+                            {
+                                <hr class="my-5" />
+                                <h4 class="mb-4">Plate Materials</h4>
+
+                                <!-- Grouping Controls -->
+                                <div class="mb-4 p-3 bg-light rounded">
+                                    <label class="fw-bold me-3">Group Chart By:</label>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="checkbox" id="groupPlateType" @bind="GroupByPlateType">
+                                        <label class="form-check-label" for="groupPlateType">Plate Type</label>
+                                    </div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="checkbox" id="groupPlateDimensions" @bind="GroupByPlateDimensions">
+                                        <label class="form-check-label" for="groupPlateDimensions">Dimensions</label>
+                                    </div>
+                                </div>
+
+                                <!-- Chart -->
+                                <div class="mb-5">
+                                    <h5 class="mb-3">Plate Aggregation</h5>
+                                    <div class="card shadow-sm border-0 bg-light">
+                                        <div class="card-body">
+                                            <div class="row align-items-center">
+                                                <!-- Pie Chart -->
+                                                <div class="col-md-5 text-center">
+                                                    <div class="d-inline-block position-relative" 
+                                                         style="width: 250px; height: 250px; border-radius: 50%; background: conic-gradient(@PlatePieChartGradient);">
+                                                    </div>
+                                                </div>
+                                                
+                                                <!-- Legend -->
+                                                <div class="col-md-7">
+                                                    <div class="overflow-auto" style="max-height: 250px;">
+                                                        @foreach (var group in PlateChartData)
+                                                        {
+                                                            <div class="d-flex align-items-center mb-2">
+                                                                <div class="rounded-circle me-2" style="width: 12px; height: 12px; background-color: @group.Color;"></div>
+                                                                <div class="flex-grow-1 text-truncate" title="@group.Key">
+                                                                    @group.Key
+                                                                </div>
+                                                                <div class="fw-bold ms-2">@group.Count</div>
+                                                                <div class="text-muted small ms-2" style="width: 45px;">(@Math.Round(group.Percentage, 1)%)</div>
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Table -->
+                                <h5 class="mb-3">Detailed Plate Items</h5>
+                                <div class="table-responsive">
+                                    <table class="table table-hover">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th>Type</th>
+                                                <th>Dimensions</th>
+                                                <th class="text-end">Quantity</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var item in PlateTableItems)
+                                            {
+                                                <tr>
+                                                    <td>@item.Plate.PlateType</td>
+                                                    <td>@item.Plate.Width x @item.Plate.Length</td>
+                                                    <td class="text-end fw-bold">@item.Quantity</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="text-center py-5 text-muted bg-light rounded">
+                                <i class="bi bi-inbox fs-1 mb-2"></i>
+                                <p>No material selections found for this project.</p>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="card shadow-sm h-100 bg-light border-0">
+                    <div class="card-body d-flex flex-column justify-content-center align-items-center text-center p-5 text-muted">
+                        <i class="bi bi-arrow-left-circle fs-1 mb-3"></i>
+                        <h5>No Project Selected</h5>
+                        <p>Please select a project from the list to continue.</p>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<Project>? _projects;
+    private Project? _selectedProject;
+    private List<Lumber> _materials = new();
+    private bool _isLoadingMaterials = false;
+    private string _searchQuery = "";
+
+    private string SearchQuery
+    {
+        get => _searchQuery;
+        set
+        {
+            _searchQuery = value;
+            StateHasChanged();
+        }
+    }
+
+    private IEnumerable<Project> FilteredProjects => 
+        _projects?.Where(p => string.IsNullOrEmpty(_searchQuery) || 
+                             p.Name.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) || 
+                             (p.Description?.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ?? false)) 
+                 .OrderBy(p => p.Name) ?? Enumerable.Empty<Project>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _projects = await ApiClient.GetProjectsAsync();
+    }
+
+    private async Task SelectProject(Project project)
+    {
+        _selectedProject = project;
+        _isLoadingMaterials = true;
+        _materials.Clear();
+        StateHasChanged();
+
+        try
+        {
+            var guids = project.ComponentDesignGuids ?? new List<string>();
+            var tasks = guids.Select(guid => ApiClient.GetComponentDesignAsync(guid));
+            ComponentDesignResponse?[]? results = await Task.WhenAll(tasks);
+
+            // Store ALL materials, not distinct
+            _materials = results
+                .Where(cd => cd?.ComponentDesign?.Component?.Members != null)
+                .SelectMany(cd => cd!.ComponentDesign!.Component!.Members)
+                .Where(m => m.Lumber != null)
+                .Select(m => m.Lumber!)
+                .ToList();
+            
+            // Extract Plates
+            _plates = results
+                .Where(cd => cd?.ComponentDesign?.Component?.PlatePairs != null)
+                .SelectMany(cd => cd!.ComponentDesign!.Component!.PlatePairs)
+                .ToList();
+
+            // Store Members for Cost Calculation
+            _membersForCost = results
+                .Where(cd => cd?.ComponentDesign?.Component?.Members != null)
+                .SelectMany(cd => cd!.ComponentDesign!.Component!.Members)
+                .Where(m => m.Lumber != null)
+                .ToList();
+
+            await CalculateCosts();
+
+            UpdateChart();
+            UpdatePlateChart();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading materials: {ex.Message}");
+        }
+        finally
+        {
+            _isLoadingMaterials = false;
+            StateHasChanged();
+        }
+    }
+
+    private List<Member> _membersForCost = new();
+    private Dictionary<Member, decimal> _memberCosts = new();
+
+    private async Task CalculateCosts()
+    {
+        _memberCosts.Clear();
+        if (!_membersForCost.Any()) return;
+
+        // Group members by unique lumber type to minimize API calls
+        var lumberGroups = _membersForCost
+            .GroupBy(m => new { 
+                m.Lumber?.Species, 
+                m.Lumber?.Grade, 
+                m.Lumber?.NominalThickness, 
+                m.Lumber?.NominalWidth,
+                m.Lumber?.ActualThickness,
+                m.Lumber?.ActualWidth,
+                m.Lumber?.Structure,
+                m.Lumber?.TreatmentType
+            })
+            .ToList();
+
+        foreach (var group in lumberGroups)
+        {
+            var lumber = group.First().Lumber;
+            if (lumber == null) continue;
+
+            var request = new LumberPriceRequest
+            {
+                Species = lumber.Species,
+                Grade = lumber.Grade,
+                NominalThickness = lumber.NominalThickness,
+                NominalWidth = lumber.NominalWidth,
+                ActualThickness = lumber.ActualThickness.ToString(),
+                ActualWidth = lumber.ActualWidth.ToString(),
+                Structure = lumber.Structure,
+                TreatmentType = lumber.TreatmentType
+            };
+
+            var prices = await ApiClient.GetLumberPricesAsync(request);
+
+            if (prices.Any())
+            {
+                foreach (var member in group)
+                {
+                    // Find cheapest stock length that covers the member length
+                    // If member length > max stock length, we might need multiple pieces, 
+                    // but usually Members are cut from a stock piece. 
+                    // Assuming simple match: First stock length >= member length
+                    
+                    var matchingPrice = prices
+                        .Where(p => p.Length >= member.Length)
+                        .OrderBy(p => p.Length)
+                        .FirstOrDefault();
+
+                    // If no single piece is long enough, take the longest/closest (fallback)
+                    if (matchingPrice == null)
+                    {
+                        matchingPrice = prices.OrderByDescending(p => p.Length).FirstOrDefault();
+                    }
+
+                    if (matchingPrice != null)
+                    {
+                        _memberCosts[member] = matchingPrice.Cost;
+                    }
+                }
+            }
+        }
+    }
+
+
+    // Grouping State
+    private bool _groupBySpecies = true;
+    public bool GroupBySpecies
+    {
+        get => _groupBySpecies;
+        set
+        {
+            if (_groupBySpecies != value)
+            {
+                _groupBySpecies = value;
+                UpdateChart();
+            }
+        }
+    }
+
+    private bool _groupByGrade = true;
+    public bool GroupByGrade
+    {
+        get => _groupByGrade;
+        set
+        {
+            if (_groupByGrade != value)
+            {
+                _groupByGrade = value;
+                UpdateChart();
+            }
+        }
+    }
+
+    private bool _groupByDimensions = true;
+    public bool GroupByDimensions
+    {
+        get => _groupByDimensions;
+        set
+        {
+            if (_groupByDimensions != value)
+            {
+                _groupByDimensions = value;
+                UpdateChart();
+            }
+        }
+    }
+
+    // View Models
+    private class MaterialGroup
+    {
+        public string Key { get; set; } = "";
+        public int Count { get; set; }
+        public decimal Cost { get; set; }
+        public double Percentage { get; set; }
+        public string Color { get; set; } = "#cccccc";
+    }
+
+    private class MaterialLineItem
+    {
+        public Lumber Lumber { get; set; } = new();
+        public int Quantity { get; set; }
+        public decimal TotalCost { get; set; }
+    }
+
+    // Computed Properties
+    private List<MaterialLineItem> TableItems 
+    {
+        get
+        {
+            // Join grouped lumber with calculated costs
+            // Need to match back to Members to sum costs
+            var tableItems = new List<MaterialLineItem>();
+            
+            var groups = _materials.GroupBy(l => new { l.Species, l.Grade, l.NominalThickness, l.NominalWidth });
+
+            foreach (var group in groups)
+            {
+                var lumberSample = group.First();
+                
+                // Find members that match this lumber type
+                var groupMembers = _membersForCost.Where(m => 
+                    m.Lumber?.Species == lumberSample.Species && 
+                    m.Lumber?.Grade == lumberSample.Grade &&
+                    m.Lumber?.NominalThickness == lumberSample.NominalThickness &&
+                    m.Lumber?.NominalWidth == lumberSample.NominalWidth
+                );
+
+                decimal totalGroupCost = 0;
+                foreach (var m in groupMembers)
+                {
+                    if (_memberCosts.TryGetValue(m, out var cost))
+                    {
+                        totalGroupCost += cost;
+                    }
+                }
+
+                tableItems.Add(new MaterialLineItem 
+                { 
+                    Lumber = lumberSample, 
+                    Quantity = group.Count(),
+                    TotalCost = totalGroupCost
+                });
+            }
+
+            return tableItems.OrderByDescending(x => x.Quantity).ToList();
+        }
+    }
+
+    private string PieChartGradient { get; set; } = "";
+    private List<MaterialGroup> ChartData { get; set; } = new List<MaterialGroup>();
+
+    private string CostPieChartGradient { get; set; } = "";
+    private List<MaterialGroup> CostChartData { get; set; } = new List<MaterialGroup>();
+
+    private void UpdateChart()
+    {
+        if (!_materials.Any()) 
+        {
+            PieChartGradient = "";
+            ChartData = new List<MaterialGroup>();
+            CostPieChartGradient = "";
+            CostChartData = new List<MaterialGroup>();
+            return;
+        }
+
+        // --- Quantity Chart Logic ---
+        var quantityGroups = _materials
+            .GroupBy(l => GetGroupKey(l))
+            .Select(g => new MaterialGroup 
+            { 
+                Key = g.Key, 
+                Count = g.Count() 
+            })
+            .OrderByDescending(x => x.Count)
+            .ToList();
+
+        // Calculate Cost Groups
+        var costGroupsMap = new Dictionary<string, decimal>();
+
+        // Iterate all members to sum costs into groups
+        foreach (var member in _membersForCost)
+        {
+            if (member.Lumber == null) continue;
+            var key = GetGroupKey(member.Lumber);
+            
+            if (_memberCosts.TryGetValue(member, out var cost))
+            {
+                if (!costGroupsMap.ContainsKey(key)) costGroupsMap[key] = 0;
+                costGroupsMap[key] += cost;
+            }
+        }
+
+        var costGroups = costGroupsMap
+            .Select(kvp => new MaterialGroup { Key = kvp.Key, Cost = kvp.Value })
+            .OrderByDescending(x => x.Cost)
+            .ToList();
+
+        // Palette
+        var colors = new[] 
+        { 
+            "#0d6efd", "#6610f2", "#6f42c1", "#d63384", "#dc3545", 
+            "#fd7e14", "#ffc107", "#198754", "#20c997", "#0dcaf0" 
+        };
+
+        // Generate Quantity Chart Data
+        double currentPercentage = 0;
+        var gradientParts = new List<string>();
+        int totalQuantity = _materials.Count;
+
+        for (int i = 0; i < quantityGroups.Count; i++)
+        {
+            var g = quantityGroups[i];
+            g.Color = colors[i % colors.Length];
+            g.Percentage = totalQuantity > 0 ? (double)g.Count / totalQuantity * 100 : 0;
+            
+            // Adjust gradient parts logic for valid css
+            gradientParts.Add($"{g.Color} {currentPercentage}% {currentPercentage + g.Percentage}%");
+            currentPercentage += g.Percentage;
+        }
+        PieChartGradient = string.Join(", ", gradientParts);
+        ChartData = quantityGroups;
+
+
+        // Generate Cost Chart Data
+        double currentCostPercentage = 0;
+        var costGradientParts = new List<string>();
+        decimal totalCost = costGroups.Sum(x => x.Cost);
+
+        for (int i = 0; i < costGroups.Count; i++)
+        {
+            var g = costGroups[i];
+            g.Color = colors[i % colors.Length]; // Reuse colors based on sorted index
+            g.Percentage = totalCost > 0 ? (double)(g.Cost / totalCost * 100) : 0;
+
+            costGradientParts.Add($"{g.Color} {currentCostPercentage}% {currentCostPercentage + g.Percentage}%");
+            currentCostPercentage += g.Percentage;
+        }
+        CostPieChartGradient = string.Join(", ", costGradientParts);
+        CostChartData = costGroups;
+    }
+
+    private string GetGroupKey(Lumber l)
+    {
+        var parts = new List<string>();
+        if (GroupBySpecies) parts.Add(l.Species);
+        if (GroupByGrade) parts.Add(l.Grade);
+        if (GroupByDimensions) parts.Add($"{l.NominalThickness}x{l.NominalWidth}");
+
+        if (!parts.Any()) return "All Materials";
+        return string.Join(" - ", parts);
+    }
+
+    // --- Plate Logic ---
+
+    private List<PlatePair> _plates = new();
+
+    // Grouping State
+    private bool _groupByPlateType = true;
+    public bool GroupByPlateType
+    {
+        get => _groupByPlateType;
+        set
+        {
+            if (_groupByPlateType != value)
+            {
+                _groupByPlateType = value;
+                UpdatePlateChart();
+            }
+        }
+    }
+
+    private bool _groupByPlateDimensions = true;
+    public bool GroupByPlateDimensions
+    {
+        get => _groupByPlateDimensions;
+        set
+        {
+            if (_groupByPlateDimensions != value)
+            {
+                _groupByPlateDimensions = value;
+                UpdatePlateChart();
+            }
+        }
+    }
+
+    // View Models
+    private class PlateLineItem
+    {
+        public PlatePair Plate { get; set; } = new();
+        public int Quantity { get; set; }
+    }
+
+    // Computed Properties
+    private List<PlateLineItem> PlateTableItems => _plates
+        .GroupBy(p => new { p.PlateType, p.Width, p.Length })
+        .Select(g => new PlateLineItem 
+        { 
+            Plate = g.First(), 
+            Quantity = g.Count() 
+        })
+        .OrderByDescending(x => x.Quantity)
+        .ToList();
+
+    private string PlatePieChartGradient { get; set; } = "";
+    private List<MaterialGroup> PlateChartData { get; set; } = new List<MaterialGroup>();
+
+    private void UpdatePlateChart()
+    {
+        if (!_plates.Any()) 
+        {
+            PlatePieChartGradient = "";
+            PlateChartData = new List<MaterialGroup>();
+            return;
+        }
+
+        var groups = _plates
+            .GroupBy(p => GetPlateGroupKey(p))
+            .Select(g => new MaterialGroup 
+            { 
+                Key = g.Key, 
+                Count = g.Count() 
+            })
+            .OrderByDescending(x => x.Count)
+            .ToList();
+
+        var totalCount = _plates.Count;
+        if (totalCount == 0)
+        {
+            PlateChartData = groups;
+            return;
+        }
+
+        // Palette (Same as lumber for consistency)
+        var colors = new[] 
+        { 
+            "#0d6efd", "#6610f2", "#6f42c1", "#d63384", "#dc3545", 
+            "#fd7e14", "#ffc107", "#198754", "#20c997", "#0dcaf0" 
+        };
+
+        double currentPercentage = 0;
+        var gradientParts = new List<string>();
+
+        for (int i = 0; i < groups.Count; i++)
+        {
+            var g = groups[i];
+            g.Color = colors[i % colors.Length];
+            g.Percentage = (double)g.Count / totalCount * 100;
+
+            gradientParts.Add($"{g.Color} {currentPercentage}% {currentPercentage + g.Percentage}%");
+            currentPercentage += g.Percentage;
+        }
+
+        PlatePieChartGradient = string.Join(", ", gradientParts);
+        PlateChartData = groups;
+    }
+
+    private string GetPlateGroupKey(PlatePair p)
+    {
+        var parts = new List<string>();
+        if (GroupByPlateType) parts.Add(p.PlateType);
+        if (GroupByPlateDimensions) parts.Add($"{p.Width}x{p.Length}");
+
+        if (!parts.Any()) return "All Plates";
+        return string.Join(" - ", parts);
+    }
+}

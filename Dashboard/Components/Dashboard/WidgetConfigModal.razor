@@ -1,0 +1,383 @@
+
+<div class="modal-backdrop" @onclick="Close">
+    <div class="modal-dialog modal-lg" @onclick:stopPropagation="true">
+        <div class="modal-header">
+            <h2>@(ExistingConfig != null ? "Edit Widget" : "Add Widget")</h2>
+            <button class="btn-close" @onclick="Close">×</button>
+        </div>
+        
+        <div class="modal-body">
+            <div class="form-section">
+                <h3>Widget Settings</h3>
+                
+                <div class="form-group">
+                    <label for="title">Widget Title</label>
+                    <input type="text" id="title" @bind="Config.Title" class="form-control" placeholder="Enter widget title" />
+                </div>
+                
+                <div class="form-group">
+                    <label for="type">Widget Type</label>
+                    <select id="type" @bind="Config.Type" class="form-control">
+                        @foreach (var type in Enum.GetValues<WidgetType>())
+                        {
+                            <option value="@type">@GetTypeDisplayName(type)</option>
+                        }
+                    </select>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="width">Width (columns)</label>
+                        <select id="width" @bind="Config.Width" class="form-control">
+                            @for (int i = 2; i <= 12; i += 2)
+                            {
+                                <option value="@i">@i columns</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="height">Height (rows)</label>
+                        <select id="height" @bind="Config.Height" class="form-control">
+                            @for (int i = 1; i <= 4; i++)
+                            {
+                                <option value="@i">@i row@(i > 1 ? "s" : "")</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="form-section">
+                <h3>Data Source</h3>
+                
+                <div class="form-group">
+                    <label for="endpoint">API Endpoint</label>
+                    <select id="endpoint" @bind="SelectedEndpointPath" class="form-control">
+                        <option value="">-- Select an endpoint --</option>
+                        @foreach (var group in EndpointsByTag)
+                        {
+                            <optgroup label="@group.Key">
+                                @foreach (var endpoint in group.Value)
+                                {
+                                    <option value="@endpoint.Path">@endpoint.Path</option>
+                                }
+                            </optgroup>
+                        }
+                    </select>
+                </div>
+                
+                @if (SelectedEndpoint != null && SelectedEndpoint.Parameters.Any(p => p.In == "path"))
+                {
+                    <div class="path-params">
+                        <label>Path Parameters</label>
+                        @foreach (var param in SelectedEndpoint.Parameters.Where(p => p.In == "path"))
+                        {
+                            <div class="form-group">
+                                <label for="param-@param.Name">@param.Name @(param.Required ? "*" : "")</label>
+                                <input type="text" id="param-@param.Name" 
+                                       value="@GetFilterValue(param.Name)"
+                                       @onchange="@(e => SetFilterValue(param.Name, e.Value?.ToString() ?? string.Empty))"
+                                       class="form-control" 
+                                       placeholder="Enter @param.Name" />
+                            </div>
+                        }
+                    </div>
+                }
+                
+                @if (SelectedEndpoint != null && SelectedEndpoint.Parameters.Any(p => p.In == "query"))
+                {
+                    <div class="query-params">
+                        <label>Query Parameters (Optional)</label>
+                        @foreach (var param in SelectedEndpoint.Parameters.Where(p => p.In == "query"))
+                        {
+                            <div class="form-group">
+                                <label for="query-@param.Name">@param.Name</label>
+                                <input type="text" id="query-@param.Name"
+                                       value="@GetFilterValue(param.Name)"
+                                       @onchange="@(e => SetFilterValue(param.Name, e.Value?.ToString() ?? string.Empty))"
+                                       class="form-control"
+                                       placeholder="@GetPlaceholder(param)" />
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+            
+            @if (SelectedSchema != null)
+            {
+                <div class="form-section">
+                    <h3>Display Fields</h3>
+                    <p class="text-muted">Select which fields to display in the widget:</p>
+                    
+                    <div class="field-selector">
+                        @foreach (var prop in SelectedSchema.Properties)
+                        {
+                            <label class="checkbox-label">
+                                <input type="checkbox" 
+                                       checked="@Config.DisplayFields.Contains(prop.Name)"
+                                       @onchange="e => ToggleField(prop.Name, (bool)(e.Value ?? false))" />
+                                <span>@prop.Name</span>
+                                <small class="text-muted">(@prop.Type)</small>
+                            </label>
+                        }
+                    </div>
+                </div>
+            }
+            
+            @if (Config.Type is WidgetType.BarChart or WidgetType.LineChart or WidgetType.PieChart)
+            {
+                <div class="form-section">
+                    <h3>Chart Settings</h3>
+                    
+                    @if (Config.Type is WidgetType.PieChart)
+                    {
+                        <div class="form-group">
+                            <label for="labelField">Label Field</label>
+                            <select id="labelField" @bind="Config.LabelField" class="form-control">
+                                <option value="">-- Select field --</option>
+                                @if (SelectedSchema != null)
+                                {
+                                    @foreach (var prop in SelectedSchema.Properties.Where(p => p.Type == "string"))
+                                    {
+                                        <option value="@prop.Name">@prop.Name</option>
+                                    }
+                                }
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="valueField">Value Field</label>
+                            <select id="valueField" @bind="Config.ValueField" class="form-control">
+                                <option value="">-- Select field --</option>
+                                @if (SelectedSchema != null)
+                                {
+                                    @foreach (var prop in SelectedSchema.Properties.Where(p => p.Type is "integer" or "number"))
+                                    {
+                                        <option value="@prop.Name">@prop.Name</option>
+                                    }
+                                }
+                            </select>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="form-group">
+                            <label for="xAxis">X-Axis Field</label>
+                            <select id="xAxis" @bind="Config.XAxisField" class="form-control">
+                                <option value="">-- Select field --</option>
+                                @if (SelectedSchema != null)
+                                {
+                                    @foreach (var prop in SelectedSchema.Properties)
+                                    {
+                                        <option value="@prop.Name">@prop.Name</option>
+                                    }
+                                }
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="yAxis">Y-Axis Field</label>
+                            <select id="yAxis" @bind="Config.YAxisField" class="form-control">
+                                <option value="">-- Select field --</option>
+                                @if (SelectedSchema != null)
+                                {
+                                    @foreach (var prop in SelectedSchema.Properties.Where(p => p.Type is "integer" or "number"))
+                                    {
+                                        <option value="@prop.Name">@prop.Name</option>
+                                    }
+                                }
+                            </select>
+                        </div>
+                    }
+                </div>
+            }
+            
+            @if (Config.Type == WidgetType.KpiCard)
+            {
+                <div class="form-section">
+                    <h3>KPI Settings</h3>
+                    <div class="form-group">
+                        <label for="valueFieldKpi">Value Field</label>
+                        <select id="valueFieldKpi" @bind="Config.ValueField" class="form-control">
+                            <option value="">-- Select field --</option>
+                            @if (SelectedSchema != null)
+                            {
+                                @foreach (var prop in SelectedSchema.Properties)
+                                {
+                                    <option value="@prop.Name">@prop.Name</option>
+                                }
+                            }
+                        </select>
+                    </div>
+                </div>
+            }
+            
+            <div class="form-section">
+                <h3>Refresh Settings</h3>
+                <div class="form-group">
+                    <label for="refresh">Auto-Refresh Interval</label>
+                    <select id="refresh" @bind="Config.RefreshIntervalSeconds" class="form-control">
+                        <option value="0">No auto-refresh</option>
+                        <option value="30">Every 30 seconds</option>
+                        <option value="60">Every minute</option>
+                        <option value="300">Every 5 minutes</option>
+                        <option value="600">Every 10 minutes</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        
+        <div class="modal-footer">
+            <button class="btn btn-secondary" @onclick="Close">Cancel</button>
+            <button class="btn btn-primary" @onclick="Save" disabled="@(!IsValid)">
+                @(ExistingConfig != null ? "Save Changes" : "Add Widget")
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public List<ApiEndpointInfo> Endpoints { get; set; } = new();
+    [Parameter] public Dictionary<string, SchemaInfo> Schemas { get; set; } = new();
+    [Parameter] public WidgetConfig? ExistingConfig { get; set; }
+    [Parameter] public EventCallback<WidgetConfig> OnSave { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    
+    private WidgetConfig Config = new();
+    private Dictionary<string, List<ApiEndpointInfo>> EndpointsByTag = new();
+    
+    private string SelectedEndpointPath
+    {
+        get => Config.EndpointTemplate ?? "";
+        set
+        {
+            Config.EndpointTemplate = value;
+            Config.EndpointPath = value; // Default to template if no params
+            UpdateSchemaForEndpoint();
+        }
+    }
+    
+    private ApiEndpointInfo? SelectedEndpoint => Endpoints.FirstOrDefault(e => e.Path == Config.EndpointTemplate);
+    private SchemaInfo? SelectedSchema;
+    
+    private bool IsValid => !string.IsNullOrEmpty(Config.Title);
+    
+    protected override void OnInitialized()
+    {
+        if (ExistingConfig != null)
+        {
+            // Clone the existing config
+            Config = new WidgetConfig
+            {
+                Id = ExistingConfig.Id,
+                Title = ExistingConfig.Title,
+                Type = ExistingConfig.Type,
+                Row = ExistingConfig.Row,
+                Column = ExistingConfig.Column,
+                Width = ExistingConfig.Width,
+                Height = ExistingConfig.Height,
+                EndpointPath = ExistingConfig.EndpointPath,
+                EndpointTemplate = ExistingConfig.EndpointTemplate,
+                DisplayFields = new List<string>(ExistingConfig.DisplayFields),
+                Filters = new Dictionary<string, string>(ExistingConfig.Filters),
+                XAxisField = ExistingConfig.XAxisField,
+                YAxisField = ExistingConfig.YAxisField,
+                ValueField = ExistingConfig.ValueField,
+                LabelField = ExistingConfig.LabelField,
+                RefreshIntervalSeconds = ExistingConfig.RefreshIntervalSeconds
+            };
+        }
+        
+        EndpointsByTag = Endpoints.GroupBy(e => e.Tag)
+                                  .ToDictionary(g => g.Key, g => g.ToList());
+        
+        if (!string.IsNullOrEmpty(Config.EndpointTemplate))
+        {
+            UpdateSchemaForEndpoint();
+        }
+    }
+    
+    private void UpdateSchemaForEndpoint()
+    {
+        SelectedSchema = null;
+        
+        if (SelectedEndpoint?.ResponseSchema != null)
+        {
+            var schemaName = SelectedEndpoint.ResponseSchema.ItemType ?? SelectedEndpoint.ResponseSchema.Name;
+            if (!string.IsNullOrEmpty(schemaName) && Schemas.TryGetValue(schemaName, out var schema))
+            {
+                SelectedSchema = schema;
+                
+                // Auto-select all fields if none selected
+                if (Config.DisplayFields.Count == 0)
+                {
+                    Config.DisplayFields = schema.Properties.Take(5).Select(p => p.Name).ToList();
+                }
+            }
+        }
+    }
+    
+    private string GetTypeDisplayName(WidgetType type) => type switch
+    {
+        WidgetType.DataTable => "📋 Data Table",
+        WidgetType.BarChart => "📊 Bar Chart",
+        WidgetType.LineChart => "📈 Line Chart",
+        WidgetType.PieChart => "🥧 Pie Chart",
+        WidgetType.KpiCard => "🔢 KPI Card",
+        _ => type.ToString()
+    };
+    
+    private string GetFilterValue(string key) => 
+        Config.Filters.TryGetValue(key, out var value) ? value : "";
+    
+    private void SetFilterValue(string key, string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            Config.Filters.Remove(key);
+        else
+            Config.Filters[key] = value;
+    }
+    
+    private string GetPlaceholder(ApiParameterInfo param)
+    {
+        if (param.Format == "date-time")
+            return "YYYY-MM-DD";
+        if (param.Format == "uuid")
+            return "GUID";
+        return $"Enter {param.Name}";
+    }
+    
+    private void ToggleField(string fieldName, bool isChecked)
+    {
+        if (isChecked && !Config.DisplayFields.Contains(fieldName))
+            Config.DisplayFields.Add(fieldName);
+        else if (!isChecked)
+            Config.DisplayFields.Remove(fieldName);
+    }
+    
+    private async Task Save()
+    {
+        // Build the actual endpoint URL with path parameters
+        if (!string.IsNullOrEmpty(Config.EndpointTemplate) && SelectedEndpoint != null)
+        {
+            var path = Config.EndpointTemplate;
+            foreach (var param in SelectedEndpoint.Parameters.Where(p => p.In == "path"))
+            {
+                if (Config.Filters.TryGetValue(param.Name, out var value))
+                {
+                    path = path.Replace($"{{{param.Name}}}", value);
+                }
+            }
+            Config.EndpointPath = path;
+        }
+        else
+        {
+            Config.EndpointPath = Config.EndpointTemplate;
+        }
+        
+        await OnSave.InvokeAsync(Config);
+    }
+    
+    private async Task Close()
+    {
+        await OnClose.InvokeAsync();
+    }
+}

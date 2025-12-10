@@ -1,0 +1,181 @@
+@page "/dashboard"
+@inject OpenApiService OpenApiService
+@inject DashboardStateService DashboardState
+@inject ParagonApiClient ApiClient
+@rendermode InteractiveServer
+
+<PageTitle>Dashboard Builder</PageTitle>
+
+<div class="dashboard-container">
+    <div class="dashboard-header">
+        <div class="dashboard-title">
+            <h1>@(CurrentDashboard?.Name ?? "Dashboard")</h1>
+            <button class="btn-icon" @onclick="ToggleSettings" title="Dashboard Settings">
+                <span class="icon">⚙️</span>
+            </button>
+        </div>
+        <div class="dashboard-actions">
+            <button class="btn btn-primary" @onclick="OpenAddWidgetModal">
+                <span class="icon">➕</span> Add Widget
+            </button>
+            <button class="btn btn-secondary" @onclick="RefreshAllWidgets">
+                <span class="icon">🔄</span> Refresh All
+            </button>
+        </div>
+    </div>
+
+    @if (IsLoading)
+    {
+        <div class="loading-overlay">
+            <div class="spinner"></div>
+            <p>Loading dashboard...</p>
+        </div>
+    }
+    else if (CurrentDashboard == null || CurrentDashboard.Widgets.Count == 0)
+    {
+        <div class="empty-dashboard">
+            <div class="empty-icon">📊</div>
+            <h2>Welcome to Your Dashboard</h2>
+            <p>Get started by adding your first widget to visualize your Paragon API data.</p>
+            <button class="btn btn-primary btn-lg" @onclick="OpenAddWidgetModal">
+                <span class="icon">➕</span> Add Your First Widget
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="dashboard-grid">
+            @foreach (var widget in CurrentDashboard.Widgets)
+            {
+                <div class="widget-wrapper" 
+                     style="grid-column: span @widget.Width; grid-row: span @widget.Height;">
+                    <Widget Config="@widget" 
+                            OnEdit="() => EditWidget(widget)"
+                            OnDelete="() => DeleteWidget(widget.Id)"
+                            OnRefresh="() => RefreshWidget(widget.Id)" />
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@if (ShowAddWidgetModal)
+{
+    <WidgetConfigModal 
+        Endpoints="@AvailableEndpoints"
+        Schemas="@Schemas"
+        OnSave="SaveNewWidget"
+        OnClose="CloseAddWidgetModal" />
+}
+
+@if (ShowEditWidgetModal && EditingWidget != null)
+{
+    <WidgetConfigModal 
+        Endpoints="@AvailableEndpoints"
+        Schemas="@Schemas"
+        ExistingConfig="@EditingWidget"
+        OnSave="SaveEditedWidget"
+        OnClose="CloseEditWidgetModal" />
+}
+
+@code {
+    private DashboardConfiguration? CurrentDashboard;
+    private List<ApiEndpointInfo> AvailableEndpoints = new();
+    private Dictionary<string, SchemaInfo> Schemas = new();
+    
+    private bool IsLoading = true;
+    private bool ShowAddWidgetModal = false;
+    private bool ShowEditWidgetModal = false;
+    private WidgetConfig? EditingWidget;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        DashboardState.OnDashboardChanged += StateHasChanged;
+        
+        try
+        {
+            // Load endpoints from OpenAPI document
+            AvailableEndpoints = await OpenApiService.GetEndpointsAsync();
+            Schemas = await OpenApiService.GetSchemasAsync();
+            
+            // Load or create dashboard
+            CurrentDashboard = await DashboardState.GetOrCreateDefaultDashboardAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error initializing dashboard: {ex.Message}");
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+    
+    private void ToggleSettings()
+    {
+        // Future: open settings panel
+    }
+    
+    private void OpenAddWidgetModal()
+    {
+        ShowAddWidgetModal = true;
+    }
+    
+    private void CloseAddWidgetModal()
+    {
+        ShowAddWidgetModal = false;
+    }
+    
+    private async Task SaveNewWidget(WidgetConfig widget)
+    {
+        await DashboardState.AddWidgetAsync(widget);
+        CurrentDashboard = DashboardState.CurrentDashboard;
+        ShowAddWidgetModal = false;
+        StateHasChanged();
+    }
+    
+    private void EditWidget(WidgetConfig widget)
+    {
+        EditingWidget = widget;
+        ShowEditWidgetModal = true;
+    }
+    
+    private void CloseEditWidgetModal()
+    {
+        ShowEditWidgetModal = false;
+        EditingWidget = null;
+    }
+    
+    private async Task SaveEditedWidget(WidgetConfig widget)
+    {
+        await DashboardState.UpdateWidgetAsync(widget);
+        CurrentDashboard = DashboardState.CurrentDashboard;
+        ShowEditWidgetModal = false;
+        EditingWidget = null;
+        StateHasChanged();
+    }
+    
+    private async Task DeleteWidget(string widgetId)
+    {
+        await DashboardState.RemoveWidgetAsync(widgetId);
+        CurrentDashboard = DashboardState.CurrentDashboard;
+        StateHasChanged();
+    }
+    
+    private void RefreshAllWidgets()
+    {
+        // Trigger refresh on all widgets (they'll handle their own data fetching)
+        StateHasChanged();
+    }
+    
+    private void RefreshWidget(string widgetId)
+    {
+        // Individual widget refresh handled by the widget component
+        StateHasChanged();
+    }
+    
+    public void Dispose()
+    {
+        DashboardState.OnDashboardChanged -= StateHasChanged;
+    }
+}

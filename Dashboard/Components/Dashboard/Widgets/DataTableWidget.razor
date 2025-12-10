@@ -1,0 +1,167 @@
+@using System.Text.Json
+
+<div class="data-table-widget">
+    @if (_rows.Count == 0)
+    {
+        <div class="empty-data">
+            <p>No data available</p>
+        </div>
+    }
+    else
+    {
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        @foreach (var field in DisplayFields)
+                        {
+                            <th @onclick="() => SortBy(field)" class="@(GetSortClass(field))">
+                                @field
+                                <span class="sort-indicator">@GetSortIndicator(field)</span>
+                            </th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in PagedRows)
+                    {
+                        <tr>
+                            @foreach (var field in DisplayFields)
+                            {
+                                <td>@GetCellValue(row, field)</td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        
+        @if (TotalPages > 1)
+        {
+            <div class="table-pagination">
+                <button class="btn btn-sm" @onclick="PrevPage" disabled="@(CurrentPage == 1)">← Prev</button>
+                <span class="page-info">Page @CurrentPage of @TotalPages (@_rows.Count items)</span>
+                <button class="btn btn-sm" @onclick="NextPage" disabled="@(CurrentPage >= TotalPages)">Next →</button>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public JsonElement? Data { get; set; }
+    [Parameter] public WidgetConfig Config { get; set; } = new();
+    
+    private List<JsonElement> _rows = new();
+    private List<string> DisplayFields = new();
+    private string? _sortField;
+    private bool _sortAscending = true;
+    
+    private int CurrentPage = 1;
+    private int PageSize = 10;
+    private int TotalPages => (int)Math.Ceiling(_rows.Count / (double)PageSize);
+    
+    private IEnumerable<JsonElement> PagedRows => _rows
+        .Skip((CurrentPage - 1) * PageSize)
+        .Take(PageSize);
+    
+    protected override void OnParametersSet()
+    {
+        ParseData();
+        
+        // Use config display fields or auto-detect
+        if (Config.DisplayFields.Count > 0)
+        {
+            DisplayFields = Config.DisplayFields;
+        }
+        else if (_rows.Count > 0)
+        {
+            DisplayFields = _rows[0].EnumerateObject()
+                .Take(5)
+                .Select(p => p.Name)
+                .ToList();
+        }
+    }
+    
+    private void ParseData()
+    {
+        _rows.Clear();
+        
+        if (Data == null) return;
+        
+        try
+        {
+            if (Data.Value.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in Data.Value.EnumerateArray())
+                {
+                    _rows.Add(item.Clone());
+                }
+            }
+            else if (Data.Value.ValueKind == JsonValueKind.Object)
+            {
+                _rows.Add(Data.Value.Clone());
+            }
+        }
+        catch { }
+    }
+    
+    private string GetCellValue(JsonElement row, string field)
+    {
+        try
+        {
+            if (row.TryGetProperty(field, out var value))
+            {
+                return value.ValueKind switch
+                {
+                    JsonValueKind.String => value.GetString() ?? "",
+                    JsonValueKind.Number => value.GetDouble().ToString("N2"),
+                    JsonValueKind.True => "Yes",
+                    JsonValueKind.False => "No",
+                    JsonValueKind.Null => "-",
+                    _ => value.ToString()
+                };
+            }
+        }
+        catch { }
+        return "-";
+    }
+    
+    private void SortBy(string field)
+    {
+        if (_sortField == field)
+        {
+            _sortAscending = !_sortAscending;
+        }
+        else
+        {
+            _sortField = field;
+            _sortAscending = true;
+        }
+        
+        _rows = _rows.OrderBy(r => GetCellValue(r, field))
+                     .ToList();
+        
+        if (!_sortAscending)
+            _rows.Reverse();
+        
+        CurrentPage = 1;
+    }
+    
+    private string GetSortClass(string field) => _sortField == field ? "sorted" : "";
+    
+    private string GetSortIndicator(string field)
+    {
+        if (_sortField != field) return "";
+        return _sortAscending ? "▲" : "▼";
+    }
+    
+    private void PrevPage()
+    {
+        if (CurrentPage > 1) CurrentPage--;
+    }
+    
+    private void NextPage()
+    {
+        if (CurrentPage < TotalPages) CurrentPage++;
+    }
+}
