@@ -52,7 +52,15 @@
                                     @onclick="() => SelectProject(project)">
                                 <div class="d-flex w-100 justify-content-between align-items-center">
                                     <div>
-                                        <div class="fw-medium mb-1">@project.Name</div>
+                                        <div class="fw-medium mb-1">
+                                            @project.Name
+                                            @if (project.ComponentDesignGuids?.Count > 0)
+                                            {
+                                                <span class="badge bg-secondary ms-2 rounded-pill small" title="@project.ComponentDesignGuids.Count Component Designs">
+                                                    @project.ComponentDesignGuids.Count
+                                                </span>
+                                            }
+                                        </div>
                                         @if (!string.IsNullOrEmpty(project.Description))
                                         {
                                             <small class="text-muted @(project == _selectedProject ? "text-white-50" : "")">
