@@ -123,6 +123,10 @@
                                         <input class="form-check-input" type="checkbox" id="groupDimensions" @bind="GroupByDimensions">
                                         <label class="form-check-label" for="groupDimensions">Dimensions</label>
                                     </div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="checkbox" id="groupStockLength" @bind="GroupByStockLength">
+                                        <label class="form-check-label" for="groupStockLength">Stock Length</label>
+                                    </div>
                                 </div>
 
                                 <!-- Charts -->
@@ -198,6 +202,7 @@
                                                 <th>Species</th>
                                                 <th>Grade</th>
                                                 <th>Dimensions</th>
+                                                <th>Stock Length</th>
                                                 <th class="text-end">Quantity</th>
                                                 <th class="text-end">Total Cost</th>
                                             </tr>
@@ -209,6 +214,16 @@
                                                     <td>@item.Lumber.Species</td>
                                                     <td>@item.Lumber.Grade</td>
                                                     <td>@item.Lumber.NominalThickness x @item.Lumber.NominalWidth</td>
+                                                    <td>
+                                                        @if (item.StockLength > 0)
+                                                        {
+                                                            @($"{item.StockLength:0.##}'")
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="text-muted">-</span>
+                                                        }
+                                                    </td>
                                                     <td class="text-end fw-bold">@item.Quantity</td>
                                                     <td class="text-end text-success">
                                                         @if (item.TotalCost > 0)
@@ -407,8 +422,14 @@
         }
     }
 
+    private class MemberCostInfo
+    {
+        public decimal Cost { get; set; }
+        public double StockLength { get; set; }
+    }
+
     private List<Member> _membersForCost = new();
-    private Dictionary<Member, decimal> _memberCosts = new();
+    private Dictionary<Member, MemberCostInfo> _memberCosts = new();
 
     private async Task CalculateCosts()
     {
@@ -470,7 +491,11 @@
 
                     if (matchingPrice != null)
                     {
-                        _memberCosts[member] = matchingPrice.Cost;
+                        _memberCosts[member] = new MemberCostInfo 
+                        { 
+                            Cost = matchingPrice.Cost/100, 
+                            StockLength = matchingPrice.Length 
+                        };
                     }
                 }
             }
@@ -521,6 +546,20 @@
         }
     }
 
+    private bool _groupByStockLength = false;
+    public bool GroupByStockLength
+    {
+        get => _groupByStockLength;
+        set
+        {
+            if (_groupByStockLength != value)
+            {
+                _groupByStockLength = value;
+                UpdateChart();
+            }
+        }
+    }
+
     // View Models
     private class MaterialGroup
     {
@@ -534,6 +573,7 @@
     private class MaterialLineItem
     {
         public Lumber Lumber { get; set; } = new();
+        public double StockLength { get; set; }
         public int Quantity { get; set; }
         public decimal TotalCost { get; set; }
     }
@@ -547,32 +587,31 @@
             // Need to match back to Members to sum costs
             var tableItems = new List<MaterialLineItem>();
             
-            var groups = _materials.GroupBy(l => new { l.Species, l.Grade, l.NominalThickness, l.NominalWidth });
+            // Re-map members with their cost info
+            var items = _membersForCost.Select(m => new {
+                 Member = m,
+                 Lumber = m.Lumber,
+                 CostInfo = _memberCosts.TryGetValue(m, out var info) ? info : null
+            }).Where(x => x.Lumber != null);
+
+            var groups = items.GroupBy(x => new {
+                 x.Lumber!.Species,
+                 x.Lumber.Grade,
+                 x.Lumber.NominalThickness,
+                 x.Lumber.NominalWidth,
+                 StockLength = x.CostInfo?.StockLength ?? 0
+            });
 
             foreach (var group in groups)
             {
-                var lumberSample = group.First();
+                var sample = group.First();
                 
-                // Find members that match this lumber type
-                var groupMembers = _membersForCost.Where(m => 
-                    m.Lumber?.Species == lumberSample.Species && 
-                    m.Lumber?.Grade == lumberSample.Grade &&
-                    m.Lumber?.NominalThickness == lumberSample.NominalThickness &&
-                    m.Lumber?.NominalWidth == lumberSample.NominalWidth
-                );
-
-                decimal totalGroupCost = 0;
-                foreach (var m in groupMembers)
-                {
-                    if (_memberCosts.TryGetValue(m, out var cost))
-                    {
-                        totalGroupCost += cost;
-                    }
-                }
+                decimal totalGroupCost = group.Sum(x => x.CostInfo?.Cost ?? 0);
 
                 tableItems.Add(new MaterialLineItem 
                 { 
-                    Lumber = lumberSample, 
+                    Lumber = sample.Lumber!, 
+                    StockLength = sample.CostInfo!.StockLength,
                     Quantity = group.Count(),
                     TotalCost = totalGroupCost
                 });
@@ -600,8 +639,11 @@
         }
 
         // --- Quantity Chart Logic ---
-        var quantityGroups = _materials
-            .GroupBy(l => GetGroupKey(l))
+        // --- Quantity Chart Logic ---
+        // Need to iterate members directly to support stock length grouping
+        var quantityGroups = _membersForCost
+            .Where(m => m.Lumber != null)
+            .GroupBy(m => GetGroupKey(m))
             .Select(g => new MaterialGroup 
             { 
                 Key = g.Key, 
@@ -617,12 +659,12 @@
         foreach (var member in _membersForCost)
         {
             if (member.Lumber == null) continue;
-            var key = GetGroupKey(member.Lumber);
+            var key = GetGroupKey(member);
             
-            if (_memberCosts.TryGetValue(member, out var cost))
+            if (_memberCosts.TryGetValue(member, out var info))
             {
                 if (!costGroupsMap.ContainsKey(key)) costGroupsMap[key] = 0;
-                costGroupsMap[key] += cost;
+                costGroupsMap[key] += info.Cost;
             }
         }
 
@@ -675,12 +717,21 @@
         CostChartData = costGroups;
     }
 
-    private string GetGroupKey(Lumber l)
+    private string GetGroupKey(Member member)
+    {
+        var l = member.Lumber;
+        if (l == null) return "Unknown";
+        
+        return GetGroupKey(l, _memberCosts.TryGetValue(member, out var info) ? info.StockLength : 0);
+    }
+
+    private string GetGroupKey(Lumber l, double stockLength = 0)
     {
         var parts = new List<string>();
         if (GroupBySpecies) parts.Add(l.Species);
         if (GroupByGrade) parts.Add(l.Grade);
         if (GroupByDimensions) parts.Add($"{l.NominalThickness}x{l.NominalWidth}");
+        if (GroupByStockLength && stockLength > 0) parts.Add($"{stockLength:0.##}'");
 
         if (!parts.Any()) return "All Materials";
         return string.Join(" - ", parts);
