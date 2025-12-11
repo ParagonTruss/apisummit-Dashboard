@@ -165,4 +165,29 @@ public class ParagonApiClient
             return new List<LumberPriceResponse>();
         }
     }
+
+    /// <summary>
+    /// Gets plate type properties including thickness
+    /// </summary>
+    public async Task<PlateTypeProperties?> GetPlateTypePropertiesAsync(string plateType)
+    {
+        try
+        {
+            var json = await GetAsync($"/api/PlatePairs/getPlateTypeProperties/{plateType}");
+            
+            if (json.HasValue)
+            {
+                var properties = JsonSerializer.Deserialize<PlateTypeProperties>(json.Value.GetRawText(), 
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                return properties;
+            }
+            
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to fetch plate type properties for {PlateType}", plateType);
+            return null;
+        }
+    }
 }

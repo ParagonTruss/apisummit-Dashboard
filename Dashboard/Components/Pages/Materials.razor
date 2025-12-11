@@ -304,6 +304,7 @@
                                                 <th>Type</th>
                                                 <th>Dimensions</th>
                                                 <th class="text-end">Quantity</th>
+                                                <th class="text-end">Weight (lbs)</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -313,6 +314,7 @@
                                                     <td>@item.Plate.PlateType</td>
                                                     <td>@item.Plate.Width x @item.Plate.Length</td>
                                                     <td class="text-end fw-bold">@item.Quantity</td>
+                                                    <td class="text-end">@((item.Plate.Weight * item.Quantity).ToString("N2"))</td>
                                                 </tr>
                                             }
                                         </tbody>
@@ -392,12 +394,40 @@
                 .Where(m => m.Lumber != null)
                 .Select(m => m.Lumber!)
                 .ToList();
-            
+
             // Extract Plates
             _plates = results
                 .Where(cd => cd?.ComponentDesign?.Component?.PlatePairs != null)
                 .SelectMany(cd => cd!.ComponentDesign!.Component!.PlatePairs)
                 .ToList();
+
+            // Fetch plate thicknesses from API and calculate weight
+            var plateTypes = _plates.Select(p => p.PlateType).Distinct().ToList();
+            var plateTypeThicknessDict = new Dictionary<string, double>();
+            foreach (var plateType in plateTypes)
+            {
+                try
+                {
+                    var properties = await ApiClient.GetPlateTypePropertiesAsync(plateType);
+                    if (properties != null && properties.Thickness > 0)
+                    {
+                        plateTypeThicknessDict[plateType] = properties.Thickness;
+                    }
+                }
+                catch { }
+            }
+
+            foreach (var plate in _plates)
+            {
+                if (plateTypeThicknessDict.TryGetValue(plate.PlateType, out var thickness))
+                {
+                    plate.Weight = plate.Width * plate.Length * thickness * 0.284;
+                }
+                else
+                {
+                    plate.Weight = 0;
+                }
+            }
 
             // Store Members for Cost Calculation
             _membersForCost = results

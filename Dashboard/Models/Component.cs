@@ -31,3 +31,15 @@ public class Component
     [JsonPropertyName("name")]
     public string? Name { get; set; }
 }
+
+/// <summary>
+/// Represents plate type properties
+/// </summary>
+public class PlateTypeProperties
+{
+    /// <summary>
+    /// The thickness of the plate type
+    /// </summary>
+    [JsonPropertyName("thickness")]
+    public double Thickness { get; set; }
+}

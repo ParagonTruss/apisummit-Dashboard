@@ -24,4 +24,10 @@ public class PlatePair
     /// </summary>
     [JsonPropertyName("length")]
     public double Length { get; set; }
+
+    /// <summary>
+    /// The calculated weight of the plate
+    /// </summary>
+    [JsonIgnore]
+    public double Weight { get; set; }
 }
