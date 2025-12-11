@@ -450,7 +450,7 @@
                     // Assuming simple match: First stock length >= member length
                     
                     var matchingPrice = prices
-                        .Where(p => p.Length >= member.Length)
+                        .Where(p => p.Length * 12 >= member.Length)
                         .OrderBy(p => p.Length)
                         .FirstOrDefault();
 

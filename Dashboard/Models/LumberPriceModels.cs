@@ -34,9 +34,9 @@ public class LumberPriceResponse
     // Assuming API returns a map or list of lengths and prices. 
     // Since exact shape isn't specific, I'll assume list of objects with length/cost based on "forAllStockLengths"
     
-    [JsonPropertyName("length")]
+    [JsonPropertyName("stockLength")]
     public double Length { get; set; }
 
-    [JsonPropertyName("cost")]
+    [JsonPropertyName("price")]
     public decimal Cost { get; set; }
 }
