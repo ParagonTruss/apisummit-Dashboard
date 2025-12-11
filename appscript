@@ -1,0 +1,225 @@
+/**
+ * CONFIGURATION
+ * Replace the token below with your actual JWT token.
+ */
+const API_BASE_URL = "https://designserver.paragontruss.com";
+const JWT_TOKEN = ""; 
+
+// The user specified the header format is 'Authentication: JWT {token}'
+// However, standard fetch often uses 'Authorization'. 
+// We will use the headers object defined in getAuthHeaders().
+function getAuthHeaders() {
+  return {
+    // If the API strictly requires the key 'Authentication', keep it as is.
+    // If it requires standard 'Authorization', change the key to 'Authorization'.
+    "Authorization": "JWT " + JWT_TOKEN, 
+    "Content-Type": "application/json"
+  };
+}
+
+/**
+ * 1. Create a Menu Item on Open
+ */
+function onOpen() {
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu('Paragon API')
+    .addItem('1. Load Projects', 'loadProjects')
+    .addItem('2. Load Selected Project Details', 'loadProjectDetails')
+    .addSeparator()
+    .addItem('Clear All Sheets', 'clearAllSheets')
+    .addToUi();
+}
+
+/**
+ * 2. Load Projects into Sheet 1
+ * Fetches /api/Projects and lists them with checkboxes.
+ */
+function loadProjects() {
+  const sheet = getOrCreateSheet("Projects");
+  sheet.clear();
+  
+  // Set Headers
+  const headers = [["Select", "Project Name", "Project GUID", "Component Count"]];
+  sheet.getRange(1, 1, 1, headers[0].length).setValues(headers).setFontWeight("bold");
+  
+  // Fetch API Data
+  try {
+    const response = UrlFetchApp.fetch(`${API_BASE_URL}/api/Projects`, {
+      method: "get",
+      headers: getAuthHeaders(),
+      muteHttpExceptions: true
+    });
+    
+    const responseCode = response.getResponseCode();
+    if (responseCode !== 200) {
+      SpreadsheetApp.getUi().alert(`Error fetching projects: ${responseCode} - ${response.getContentText()}`);
+      return;
+    }
+
+    const projects = JSON.parse(response.getContentText());
+    
+    if (!projects || projects.length === 0) {
+      SpreadsheetApp.getUi().alert("No projects found.");
+      return;
+    }
+
+    // Prepare Output Array
+    const output = projects.map(p => [
+      false, // Checkbox placeholder
+      p.name,
+      p.guid,
+      p.componentDesignGuids ? p.componentDesignGuids.length : 0
+    ]);
+
+    // Write Data
+    if (output.length > 0) {
+      const range = sheet.getRange(2, 1, output.length, output[0].length);
+      range.setValues(output);
+      
+      // Insert Checkboxes in Column A
+      sheet.getRange(2, 1, output.length, 1).insertCheckboxes();
+    }
+    
+    // Resize columns for readability
+    sheet.autoResizeColumns(1, 4);
+    
+  } catch (e) {
+    SpreadsheetApp.getUi().alert("Request Failed: " + e.toString());
+  }
+}
+
+/**
+ * 3. Load Detailed Data for Selected Projects
+ * Iterates through checked projects, fetches /api/ComponentDesigns/{guid}, 
+ * and flattens member lumber data into a second sheet.
+ */
+function loadProjectDetails() {
+  const projectSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Projects");
+  if (!projectSheet) {
+    SpreadsheetApp.getUi().alert("Please run 'Load Projects' first.");
+    return;
+  }
+
+  const projectData = projectSheet.getDataRange().getValues();
+  const detailSheet = getOrCreateSheet("Component Details");
+  
+  // If sheet is empty, set headers
+  if (detailSheet.getLastRow() === 0) {
+    const headers = [
+      "Project Name", 
+      "Component Name", 
+      "Member Name", 
+      "Lumber Grade", 
+      "Lumber Species", 
+      "Nominal Thickness", 
+      "Nominal Width",
+      "Actual Thickness", 
+      "Actual Width" 
+    ];
+    detailSheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold");
+  }
+
+  const rowsToAdd = [];
+
+  // Loop through projects (skip header row)
+  for (let i = 1; i < projectData.length; i++) {
+    const isChecked = projectData[i][0];
+    const projectName = projectData[i][1];
+    const projectGuid = projectData[i][2];
+
+    if (isChecked === true) {
+      try {
+        // 1. Fetch specific project to ensure we have the latest componentGuids
+        // (The list view might be lightweight, fetching detail ensures accuracy)
+        const projResponse = UrlFetchApp.fetch(`${API_BASE_URL}/api/public/projects/${projectGuid}`, {
+          method: "get",
+          headers: getAuthHeaders(),
+          muteHttpExceptions: true
+        });
+        
+        const projectObj = JSON.parse(projResponse.getContentText());
+        const componentGuids = projectObj.componentDesignGuids || [];
+
+        // 2. Loop through every component in the project
+        for (const compGuid of componentGuids) {
+          
+          // Fetch Component Design
+          const compResponse = UrlFetchApp.fetch(`${API_BASE_URL}/api/ComponentDesigns/${compGuid}`, {
+            method: "get",
+            headers: getAuthHeaders(),
+            muteHttpExceptions: true
+          });
+
+          if (compResponse.getResponseCode() !== 200) continue; // Skip errors
+
+          const compData = JSON.parse(compResponse.getContentText());
+          
+          // Navigate schema: TransferComponentDesign -> IComponent
+          // Note: The structure is compData.componentDesign.component
+          const innerComponent = compData.componentDesign && compData.componentDesign.component;
+          
+          if (!innerComponent) continue;
+
+          const componentName = innerComponent.name || "Unnamed Component";
+          const members = innerComponent.members || [];
+
+          // 3. Flatten Members -> Lumber
+          for (const member of members) {
+            const lumber = member.lumber;
+            
+            if (lumber) {
+              rowsToAdd.push([
+                projectName,
+                componentName,
+                member.name || "Unnamed Member",
+                lumber.grade || "",
+                lumber.species || "",
+                lumber.nominalThickness || "", // Note: Schema implies strings or numbers
+                lumber.nominalWidth || "",
+                lumber.actualThickness || "",
+                lumber.actualWidth || ""
+              ]);
+            }
+          }
+          
+          // Sleep briefly to avoid hitting API rate limits if strictly enforced
+          Utilities.sleep(100); 
+        }
+      } catch (e) {
+        console.error(`Error processing project ${projectName}: ${e.toString()}`);
+      }
+    }
+  }
+
+  // Write accumulated data to sheet
+  if (rowsToAdd.length > 0) {
+    const startRow = detailSheet.getLastRow() + 1;
+    detailSheet.getRange(startRow, 1, rowsToAdd.length, rowsToAdd[0].length).setValues(rowsToAdd);
+    detailSheet.autoResizeColumns(1, 9);
+    SpreadsheetApp.getUi().alert(`Successfully loaded ${rowsToAdd.length} lumber records.`);
+  } else {
+    SpreadsheetApp.getUi().alert("No members found for the selected projects.");
+  }
+}
+
+/**
+ * 4. Clear All Sheets
+ */
+function clearAllSheets() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheets = ss.getSheets();
+  sheets.forEach(sheet => sheet.clear());
+  SpreadsheetApp.getUi().alert("All sheets cleared.");
+}
+
+/**
+ * Helper: Get or Create Sheet by Name
+ */
+function getOrCreateSheet(sheetName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(sheetName);
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+  }
+  return sheet;
+}
