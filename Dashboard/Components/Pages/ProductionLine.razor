@@ -1,0 +1,292 @@
+@page "/production"
+@rendermode InteractiveServer
+@inject ParagonApiClient ApiClient
+@inject ProductionTrackingService ProductionService
+
+<PageTitle>Production Line</PageTitle>
+
+<div class="container-fluid p-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h1 class="display-6">Production Line</h1>
+            <p class="text-muted">Track production status for project components.</p>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Project List (Left Column) -->
+        <div class="col-md-4 col-lg-3">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-white p-3">
+                    <h5 class="card-title mb-3">Projects</h5>
+                    <div class="input-group">
+                        <span class="input-group-text bg-light border-end-0">
+                            <i class="bi bi-search text-muted"></i>
+                        </span>
+                        <input type="text" 
+                               class="form-control border-start-0 ps-0" 
+                               placeholder="Search projects..." 
+                               @bind="SearchQuery" 
+                               @bind:event="oninput">
+                    </div>
+                </div>
+                <div class="list-group list-group-flush overflow-auto" style="height: calc(100vh - 250px); max-height: 600px;">
+                    @if (_projects == null)
+                    {
+                        <div class="p-4 text-center text-muted">
+                            <div class="spinner-border spinner-border-sm text-primary mb-2" role="status"></div>
+                            <p class="small mb-0">Loading projects...</p>
+                        </div>
+                    }
+                    else if (!FilteredProjects.Any())
+                    {
+                        <div class="p-5 text-center text-muted">
+                            <i class="bi bi-filter-circle fs-1 mb-2 opacity-50"></i>
+                            <p class="mb-0">No projects found.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var project in FilteredProjects)
+                        {
+                            <button type="button" 
+                                    class="list-group-item list-group-item-action py-3 @(project == _selectedProject ? "active" : "")"
+                                    @onclick="() => SelectProject(project)">
+                                <div class="d-flex w-100 justify-content-between align-items-center">
+                                    <div>
+                                        <div class="fw-medium mb-1">@project.Name</div>
+                                        @if (!string.IsNullOrEmpty(project.Description))
+                                        {
+                                            <small class="text-muted @(project == _selectedProject ? "text-white-50" : "")">
+                                                @(project.Description.Length > 50 ? project.Description.Substring(0, 47) + "..." : project.Description)
+                                            </small>
+                                        }
+                                    </div>
+                                    @if (project == _selectedProject)
+                                    {
+                                        <i class="bi bi-chevron-right small"></i>
+                                    }
+                                </div>
+                            </button>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Production Details (Right Column) -->
+        <div class="col-md-8 col-lg-9">
+            @if (_selectedProject != null)
+            {
+                <div class="card shadow-sm h-100 border-primary">
+                    <div class="card-body p-4">
+                        <div class="d-flex align-items-center mb-4">
+                            <div class="bg-primary bg-opacity-10 p-3 rounded-circle me-3">
+                                <i class="bi bi-gear-wide-connected text-primary fs-3"></i>
+                            </div>
+                            <div>
+                                <h3 class="mb-0">@_selectedProject.Name</h3>
+                                <small class="text-muted">Production Management</small>
+                            </div>
+                        </div>
+
+                        @if (_isLoadingComponents)
+                        {
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-primary mb-3" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                <p class="text-muted">Loading components...</p>
+                            </div>
+                        }
+                        else if (_components.Any())
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Component</th>
+                                            <th>Status</th>
+                                            <th>Labor Cost</th>
+                                            <th>Production Date</th>
+                                            <th>Start Time</th>
+                                            <th>End Time</th>
+                                            <th>Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var vm in _componentViewModels)
+                                        {
+                                            <tr>
+                                                <td style="min-width: 150px;">
+                                                    <div class="fw-bold">@(vm.Component.Name ?? "Unnamed Component")</div>
+                                                    <small class="text-muted">@vm.Component.NumberOfPlies Plies</small>
+                                                </td>
+                                                <td style="min-width: 140px;">
+                                                    <select class="form-select form-select-sm @GetStatusColor(vm.Data.Status)" 
+                                                            @bind="vm.Data.Status">
+                                                        @foreach (var status in Enum.GetValues<ProductionStatus>())
+                                                        {
+                                                            <option value="@status">@status</option>
+                                                        }
+                                                    </select>
+                                                </td>
+                                                <td style="min-width: 120px;">
+                                                    <div class="input-group input-group-sm">
+                                                        <span class="input-group-text">$</span>
+                                                        <input type="number" class="form-control" @bind="vm.Data.LaborCost" step="0.01" min="0" />
+                                                    </div>
+                                                </td>
+                                                <td style="min-width: 150px;">
+                                                    <input type="date" class="form-control form-select-sm" @bind="vm.Data.ProjectedProductionDate" />
+                                                </td>
+                                                <td style="min-width: 150px;">
+                                                    <input type="datetime-local" class="form-control form-select-sm" @bind="vm.Data.ProjectedStartTime" />
+                                                </td>
+                                                <td style="min-width: 150px;">
+                                                    <input type="datetime-local" class="form-control form-select-sm" @bind="vm.Data.ProjectedEndTime" />
+                                                </td>
+                                                <td>
+                                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => SaveData(vm)">
+                                                        <i class="bi bi-save"></i> Save
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="text-center py-5 text-muted bg-light rounded">
+                                <i class="bi bi-inbox fs-1 mb-2"></i>
+                                <p>No components found for this project.</p>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="card shadow-sm h-100 bg-light border-0">
+                    <div class="card-body d-flex flex-column justify-content-center align-items-center text-center p-5 text-muted">
+                        <i class="bi bi-arrow-left-circle fs-1 mb-3"></i>
+                        <h5>No Project Selected</h5>
+                        <p>Please select a project from the list to continue.</p>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<Project>? _projects;
+    private Project? _selectedProject;
+    private List<Component> _components = new();
+    private List<ComponentViewModel> _componentViewModels = new();
+    private bool _isLoadingComponents = false;
+    private string _searchQuery = "";
+
+    private string SearchQuery
+    {
+        get => _searchQuery;
+        set
+        {
+            _searchQuery = value;
+            StateHasChanged();
+        }
+    }
+
+    private IEnumerable<Project> FilteredProjects => 
+        _projects?.Where(p => string.IsNullOrEmpty(_searchQuery) || 
+                             p.Name.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) || 
+                             (p.Description?.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ?? false)) 
+                 .OrderBy(p => p.Name) ?? Enumerable.Empty<Project>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _projects = await ApiClient.GetProjectsAsync();
+    }
+
+    private async Task SelectProject(Project project)
+    {
+        _selectedProject = project;
+        _isLoadingComponents = true;
+        _components.Clear();
+        _componentViewModels.Clear();
+        StateHasChanged();
+
+        try
+        {
+            var guids = project.ComponentDesignGuids ?? new List<string>();
+            var tasks = guids.Select(guid => ApiClient.GetComponentDesignAsync(guid));
+            var results = await Task.WhenAll(tasks);
+
+            // Assuming we need a way to identify components uniquely across the system. 
+            // In a real app we'd have stable IDs. For now we track by Component Guid if available, 
+            // or we might need to rely on the fact that we're editing specific instances in memory.
+            // The ProductionData model uses ComponentGuid. 
+            // The Component model doesn't seem to have a GUID property in the definition I saw earlier (only Members, PlatePairs, Name, Plies).
+            // Wait, I checked Component.cs and it DOES NOT have an ID. 
+            // I should use the ComponentDesignGuid from the project list as the key, since that seems unique per "Design".
+            
+            // Re-mapping logic:
+            // results is ComponentDesignResponse?[]
+            // ComponentDesignResponse -> ComponentDesign -> Component
+            
+            _componentViewModels = results
+                .Where(r => r?.ComponentDesign?.Component != null)
+                .Select((r, index) => 
+                {
+                   var guid = guids[index]; // Map back to the GUID requested
+                   var comp = r!.ComponentDesign!.Component!;
+                   return new ComponentViewModel 
+                   {
+                       Component = comp,
+                       ComponentDesignGuid = guid,
+                       Data = ProductionService.GetProductionData(guid)
+                   };
+                })
+                .ToList();
+                
+            _components = _componentViewModels.Select(vm => vm.Component).ToList();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading components: {ex.Message}");
+        }
+        finally
+        {
+            _isLoadingComponents = false;
+            StateHasChanged();
+        }
+    }
+
+    private void SaveData(ComponentViewModel vm)
+    {
+        if (vm.Data != null)
+        {
+            ProductionService.UpdateProductionData(vm.Data);
+            // Optional: Show toast notification
+        }
+    }
+
+    private string GetStatusColor(ProductionStatus status) => status switch
+    {
+        ProductionStatus.Pending => "",
+        ProductionStatus.Cutting => "text-primary border-primary",
+        ProductionStatus.Assembling => "text-warning border-warning",
+        ProductionStatus.Packing => "text-info border-info",
+        ProductionStatus.Shipped => "text-success border-success",
+        _ => ""
+    };
+
+    private class ComponentViewModel
+    {
+        public Component Component { get; set; } = new();
+        public string ComponentDesignGuid { get; set; } = "";
+        public ProductionData Data { get; set; } = new();
+    }
+}

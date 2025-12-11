@@ -9,6 +9,7 @@ builder.Services.AddRazorComponents()
 
 // Register OpenAPI parsing service
 builder.Services.AddSingleton<OpenApiService>();
+builder.Services.AddSingleton<ProductionTrackingService>();
 
 // Register Paragon API client
 builder.Services.AddHttpClient<ParagonApiClient>(client =>
